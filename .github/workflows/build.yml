@@ -1,4 +1,4 @@
-name: Build Evolution GO Jupiter
+name: Build and Publish Evolution GO Jupiter
 
 on:
   push:
@@ -7,13 +7,30 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
-  docker-build:
+  docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build image
-        run: docker build --progress=plain -t evolution-go-jupiter:0.7.2-jupiter1 .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/ttavares369/evolution-go-jupiter:0.7.2-jupiter1
+            ghcr.io/ttavares369/evolution-go-jupiter:latest
