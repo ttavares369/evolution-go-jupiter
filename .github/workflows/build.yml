@@ -1,0 +1,19 @@
+name: Build Evolution GO Jupiter
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build --progress=plain -t evolution-go-jupiter:0.7.2-jupiter1 .
