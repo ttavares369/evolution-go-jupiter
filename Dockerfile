@@ -4,16 +4,15 @@ RUN apk update && apk add --no-cache git build-base libjpeg-turbo-dev libwebp-de
 
 WORKDIR /build
 
-# Base exata usada em produção antes dos patches.
+# Base exata usada em produção antes do patch.
 RUN git clone --depth 1 --branch 0.7.2 https://github.com/evolution-foundation/evolution-go.git .
 
-# PR #154: estabiliza lifecycle, reconexão, QR e restauração de sessões.
-RUN curl -fsSL https://github.com/evolution-foundation/evolution-go/pull/154.patch -o /tmp/pr154.patch \
-    && git apply --3way /tmp/pr154.patch
-
-# PR #174: reutiliza o pool PostgreSQL compartilhado em StartClient.
-RUN curl -fsSL https://github.com/evolution-foundation/evolution-go/pull/174.patch -o /tmp/pr174.patch \
-    && git apply --3way /tmp/pr174.patch
+# PR #154: estabiliza lifecycle, reconexão, QR, restauração de sessões
+# e fecha corretamente os sqlstore containers durante reinícios controlados.
+RUN git config user.name "Jupiter Build" \
+    && git config user.email "build@jupiterti.local" \
+    && curl -fsSL https://github.com/evolution-foundation/evolution-go/pull/154.patch -o /tmp/pr154.patch \
+    && git am -3 /tmp/pr154.patch
 
 # Identificação da nossa build.
 RUN printf '%s\n' '0.7.2-jupiter1' > VERSION
@@ -32,5 +31,7 @@ COPY --from=build /build/manager/dist ./manager/dist
 COPY --from=build /build/VERSION ./VERSION
 
 ENV TZ=America/Sao_Paulo
+
+EXPOSE 8080
 
 ENTRYPOINT ["/app/server"]
