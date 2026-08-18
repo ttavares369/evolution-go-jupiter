@@ -1,4 +1,4 @@
-# evolution-go-jupiter
+# evolution-go-jupiter - www.jupiterti.com
 
 Build customizada da Evolution API GO baseada na versão oficial `0.7.2`, criada para estabilizar o ciclo de vida das instâncias e reduzir problemas de reconexão e vazamento de conexões PostgreSQL.
 
