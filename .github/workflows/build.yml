@@ -61,19 +61,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish multi-platform tags
+      - name: Publish a new multi-platform tag without touching production tags
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           docker buildx imagetools create \
-            --tag "${IMAGE}:0.7.2-jupiter1" \
-            --tag "${IMAGE}:latest" \
+            --tag "${IMAGE}:0.7.2-jupiter2-webhook-${COMMIT_SHA}" \
             "${IMAGE}:sha-${COMMIT_SHA}-amd64" \
             "${IMAGE}:sha-${COMMIT_SHA}-arm64"
 
       - name: Verify published architectures
+        env:
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          for tag in 0.7.2-jupiter1 latest; do
-            docker buildx imagetools inspect "${IMAGE}:${tag}" --raw |
-              jq -e '[.manifests[] | select(.platform.os == "linux") | .platform.architecture] | unique == ["amd64", "arm64"]'
-          done
+          docker buildx imagetools inspect "${IMAGE}:0.7.2-jupiter2-webhook-${COMMIT_SHA}" --raw |
+            jq -e '[.manifests[] | select(.platform.os == "linux") | .platform.architecture] | unique == ["amd64", "arm64"]'
