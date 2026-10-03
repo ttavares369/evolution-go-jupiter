@@ -70,9 +70,28 @@ jobs:
             "${IMAGE}:sha-${COMMIT_SHA}-amd64" \
             "${IMAGE}:sha-${COMMIT_SHA}-arm64"
 
+      - name: Republish current LembrAI production tag for runtime hardening
+        if: github.event_name == 'push' && github.event.head_commit.message == 'fix: harden Evolution container runtime'
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          PRODUCTION_TAG: 0.7.2-jupiter2-webhook-4bd9c2adf8f4f338791054dc469db9e66b8a3060
+        run: |
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${PRODUCTION_TAG}" \
+            "${IMAGE}:sha-${COMMIT_SHA}-amd64" \
+            "${IMAGE}:sha-${COMMIT_SHA}-arm64"
+
       - name: Verify published architectures
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           docker buildx imagetools inspect "${IMAGE}:0.7.2-jupiter2-webhook-${COMMIT_SHA}" --raw |
+            jq -e '[.manifests[] | select(.platform.os == "linux") | .platform.architecture] | unique == ["amd64", "arm64"]'
+
+      - name: Verify republished LembrAI production tag
+        if: github.event_name == 'push' && github.event.head_commit.message == 'fix: harden Evolution container runtime'
+        env:
+          PRODUCTION_TAG: 0.7.2-jupiter2-webhook-4bd9c2adf8f4f338791054dc469db9e66b8a3060
+        run: |
+          docker buildx imagetools inspect "${IMAGE}:${PRODUCTION_TAG}" --raw |
             jq -e '[.manifests[] | select(.platform.os == "linux") | .platform.architecture] | unique == ["amd64", "arm64"]'

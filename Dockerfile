@@ -32,7 +32,11 @@ RUN CGO_ENABLED=1 go build -ldflags "-X main.version=0.7.2-jupiter2-webhook" -o 
 
 FROM alpine:3.19.1 AS final
 
-RUN apk update && apk add --no-cache tzdata ffmpeg libjpeg-turbo libwebp poppler-utils
+# Runtime hardening for Coolify/Alpine:
+# - dumb-init is PID 1 and reaps orphaned child processes
+# - curl avoids BusyBox wget/ssl_client for HTTP checks
+# - bash keeps compatibility with Coolify exec helpers
+RUN apk add --no-cache tzdata ffmpeg libjpeg-turbo libwebp poppler-utils curl bash dumb-init
 
 WORKDIR /app
 
@@ -44,4 +48,4 @@ ENV TZ=America/Sao_Paulo
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/server"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/app/server"]
