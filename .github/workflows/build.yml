@@ -71,7 +71,7 @@ jobs:
             "${IMAGE}:sha-${COMMIT_SHA}-arm64"
 
       - name: Republish current LembrAI production tag for runtime hardening
-        if: github.event_name == 'push' && github.event.head_commit.message == 'fix: harden Evolution container runtime'
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, 'harden Evolution container runtime')
         env:
           COMMIT_SHA: ${{ github.sha }}
           PRODUCTION_TAG: 0.7.2-jupiter2-webhook-4bd9c2adf8f4f338791054dc469db9e66b8a3060
@@ -89,7 +89,7 @@ jobs:
             jq -e '[.manifests[] | select(.platform.os == "linux") | .platform.architecture] | unique == ["amd64", "arm64"]'
 
       - name: Verify republished LembrAI production tag
-        if: github.event_name == 'push' && github.event.head_commit.message == 'fix: harden Evolution container runtime'
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, 'harden Evolution container runtime')
         env:
           PRODUCTION_TAG: 0.7.2-jupiter2-webhook-4bd9c2adf8f4f338791054dc469db9e66b8a3060
         run: |
