@@ -1,0 +1,16 @@
+diff --git a/pkg/whatsmeow/service/whatsmeow.go b/pkg/whatsmeow/service/whatsmeow.go
+index 5b48b4a..7e3ecf8 100644
+--- a/pkg/whatsmeow/service/whatsmeow.go
++++ b/pkg/whatsmeow/service/whatsmeow.go
+@@ -713,6 +713,11 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
+ 		}
+ 	}
+ 
++	// DeviceProps alone does not update the version sent in the Noise handshake.
++	if applyWhatsAppClientVersion(version) {
++		w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Applied WhatsApp handshake version %s", cd.Instance.Id, store.GetWAVersion().String())
++	}
++
+ 	// 🔒 FIX: Sempre criar logger, mesmo que WaDebug esteja vazio
+ 	// Usar "INFO" como nível mínimo para garantir que logs importantes apareçam
+ 	minLevel := w.config.WaDebug
