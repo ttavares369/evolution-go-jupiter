@@ -1,0 +1,6 @@
+.git
+.work
+.env
+.env.*
+dbdata
+logs

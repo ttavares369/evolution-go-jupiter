@@ -1,0 +1,828 @@
+--- a/cmd/evolution-go/main.go
++++ b/cmd/evolution-go/main.go
+@@ -54,6 +54,7 @@
+ 	newsletter_service "github.com/evolution-foundation/evolution-go/pkg/newsletter/service"
+ 	passkey_handler "github.com/evolution-foundation/evolution-go/pkg/passkey/handler"
+ 	poll_handler "github.com/evolution-foundation/evolution-go/pkg/poll/handler"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	"github.com/evolution-foundation/evolution-go/pkg/queuev1"
+ 	routes "github.com/evolution-foundation/evolution-go/pkg/routes"
+ 	send_handler "github.com/evolution-foundation/evolution-go/pkg/sendMessage/handler"
+@@ -84,6 +85,9 @@
+ }
+ 
+ func setupRouter(db *gorm.DB, authDB *sql.DB, sqliteDB *sql.DB, config *config.Config, conn *amqp.Connection, exPath string, runtimeCtx *core.RuntimeContext) *gin.Engine {
++	if err := queuepolicy.Configure(db, os.Getenv("EVOLUTION_QUEUE_V1_EXCLUSIVE_INSTANCE_IDS")); err != nil {
++		logger.LogError("Queue instance policy unavailable; application emissions blocked")
++	}
+ 	killChannel := make(map[string](chan bool))
+ 	clientPointer := make(map[string]*whatsmeow.Client)
+ 
+@@ -242,7 +246,7 @@
+ 		server_handler.NewServerHandler(),
+ 	).AssignRoutes(r)
+ 
+-	queuev1.RegisterOptional(r, db, whatsmeowService, auth_middleware.NewMiddleware(config, instanceService).Auth, os.Getenv("EVOLUTION_QUEUE_V1") == "true")
++	queuev1.RegisterOptional(r, db, whatsmeowService, auth_middleware.NewMiddleware(config, instanceService).Auth, os.Getenv("EVOLUTION_QUEUE_V1") == "true", auth_middleware.NewMiddleware(config, instanceService).AuthAdmin)
+ 
+ 	if config.ConnectOnStartup {
+ 		go whatsmeowService.ConnectOnStartup(config.ClientName)
+--- a/pkg/call/service/call_service.go
++++ b/pkg/call/service/call_service.go
+@@ -7,6 +7,7 @@
+ 
+ 	instance_model "github.com/evolution-foundation/evolution-go/pkg/instance/model"
+ 	logger_wrapper "github.com/evolution-foundation/evolution-go/pkg/logger"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
+ 	"github.com/gomessguii/logger"
+ 	"go.mau.fi/whatsmeow"
+@@ -68,6 +69,9 @@
+ }
+ 
+ func (c *callService) RejectCall(data *RejectCallStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := c.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+--- a/pkg/community/service/community_service.go
++++ b/pkg/community/service/community_service.go
+@@ -7,6 +7,7 @@
+ 
+ 	instance_model "github.com/evolution-foundation/evolution-go/pkg/instance/model"
+ 	logger_wrapper "github.com/evolution-foundation/evolution-go/pkg/logger"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	"github.com/evolution-foundation/evolution-go/pkg/utils"
+ 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
+ 	"github.com/gin-gonic/gin"
+@@ -75,6 +76,9 @@
+ }
+ 
+ func (c *communityService) CreateCommunity(data *CreateCommunityStruct, instance *instance_model.Instance) (*types.GroupInfo, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := c.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -95,6 +99,9 @@
+ }
+ 
+ func (c *communityService) CommunityAdd(data *AddParticipantStruct, instance *instance_model.Instance) (gin.H, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := c.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -126,6 +133,9 @@
+ }
+ 
+ func (c *communityService) CommunityRemove(data *AddParticipantStruct, instance *instance_model.Instance) (gin.H, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := c.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+--- a/pkg/group/service/group_service.go
++++ b/pkg/group/service/group_service.go
+@@ -11,6 +11,7 @@
+ 
+ 	instance_model "github.com/evolution-foundation/evolution-go/pkg/instance/model"
+ 	logger_wrapper "github.com/evolution-foundation/evolution-go/pkg/logger"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	"github.com/evolution-foundation/evolution-go/pkg/utils"
+ 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
+ 	"github.com/gin-gonic/gin"
+@@ -201,6 +202,9 @@
+ }
+ 
+ func (g *groupService) GetGroupInviteLink(data *GetGroupInviteLinkStruct, instance *instance_model.Instance) (string, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return "", err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return "", err
+@@ -222,6 +226,9 @@
+ }
+ 
+ func (g *groupService) SetGroupPhoto(data *SetGroupPhotoStruct, instance *instance_model.Instance) (string, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return "", err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return "", err
+@@ -271,6 +278,9 @@
+ }
+ 
+ func (g *groupService) SetGroupName(data *SetGroupNameStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+@@ -299,6 +309,9 @@
+ }
+ 
+ func (g *groupService) SetGroupDescription(data *SetGroupDescriptionStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+@@ -329,6 +342,9 @@
+ }
+ 
+ func (g *groupService) CreateGroup(data *CreateGroupStruct, instance *instance_model.Instance) (gin.H, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -382,6 +398,9 @@
+ }
+ 
+ func (g *groupService) UpdateParticipant(data *AddParticipantStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+@@ -437,6 +456,9 @@
+ }
+ 
+ func (g *groupService) JoinGroupLink(data *JoinGroupStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+@@ -452,6 +474,9 @@
+ }
+ 
+ func (g *groupService) LeaveGroup(data *LeaveGroupStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+@@ -467,6 +492,9 @@
+ }
+ 
+ func (g *groupService) UpdateGroupSettings(data *UpdateGroupSettingsStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+@@ -596,6 +624,9 @@
+ }
+ 
+ func (g *groupService) UpdateGroupRequestParticipants(data *UpdateGroupRequestParticipantsStruct, instance *instance_model.Instance) ([]types.GroupParticipant, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := g.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+--- a/pkg/instance/handler/instance_handler.go
++++ b/pkg/instance/handler/instance_handler.go
+@@ -606,6 +606,12 @@
+ // @Router /instance/{instanceId}/advanced-settings [get]
+ func (h *instanceHandler) GetAdvancedSettings(c *gin.Context) {
+ 	instanceId := c.Param("instanceId")
++	value, ok := c.Get("instance")
++	instance, valid := value.(*instance_model.Instance)
++	if !ok || !valid || instance == nil || instance.Id != instanceId {
++		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "not_authorized"})
++		return
++	}
+ 
+ 	if instanceId == "" {
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": "instanceId is required"})
+@@ -636,6 +642,12 @@
+ // @Router /instance/{instanceId}/advanced-settings [put]
+ func (h *instanceHandler) UpdateAdvancedSettings(c *gin.Context) {
+ 	instanceId := c.Param("instanceId")
++	value, ok := c.Get("instance")
++	instance, valid := value.(*instance_model.Instance)
++	if !ok || !valid || instance == nil || instance.Id != instanceId {
++		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "not_authorized"})
++		return
++	}
+ 
+ 	if instanceId == "" {
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": "instanceId is required"})
+--- a/pkg/message/service/message_service.go
++++ b/pkg/message/service/message_service.go
+@@ -13,6 +13,7 @@
+ 	logger_wrapper "github.com/evolution-foundation/evolution-go/pkg/logger"
+ 	message_model "github.com/evolution-foundation/evolution-go/pkg/message/model"
+ 	message_repository "github.com/evolution-foundation/evolution-go/pkg/message/repository"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	"github.com/evolution-foundation/evolution-go/pkg/utils"
+ 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
+ 	"github.com/vincent-petithory/dataurl"
+@@ -134,6 +135,9 @@
+ }
+ 
+ func (m *messageService) React(data *ReactStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := m.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -195,6 +199,9 @@
+ 	// original message ID as the reaction envelope ID; WhatsApp silently
+ 	// deduplicates it and drops the reaction. Let whatsmeow generate a
+ 	// fresh, unique ID for the envelope.
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	response, err := client.SendMessage(context.Background(), recipient, msg)
+ 	if err != nil {
+ 		return nil, err
+@@ -225,6 +232,9 @@
+ }
+ 
+ func (m *messageService) ChatPresence(data *ChatPresenceStruct, instance *instance_model.Instance) (string, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return "", err
++	}
+ 	client, err := m.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return "", err
+@@ -465,6 +475,9 @@
+ }
+ 
+ func (m *messageService) DeleteMessageEveryone(data *MessageStruct, instance *instance_model.Instance) (string, string, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return "", "", err
++	}
+ 	client, err := m.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return "", "", err
+@@ -480,6 +493,9 @@
+ 
+ 	m.loggerWrapper.GetLogger(instance.Id).LogInfo("Revoking message %s from %s", data.MessageID, recipient)
+ 
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return "", "", err
++	}
+ 	resp, err := client.SendMessage(
+ 		context.Background(),
+ 		recipient,
+@@ -495,6 +511,9 @@
+ }
+ 
+ func (m *messageService) EditMessage(data *EditMessageStruct, instance *instance_model.Instance) (string, string, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return "", "", err
++	}
+ 	client, err := m.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return "", "", err
+@@ -506,6 +525,9 @@
+ 		return "", "", errors.New("invalid phone number")
+ 	}
+ 
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return "", "", err
++	}
+ 	resp, err := client.SendMessage(
+ 		context.Background(),
+ 		recipient,
+--- a/pkg/newsletter/service/newsletter_service.go
++++ b/pkg/newsletter/service/newsletter_service.go
+@@ -7,6 +7,7 @@
+ 
+ 	instance_model "github.com/evolution-foundation/evolution-go/pkg/instance/model"
+ 	logger_wrapper "github.com/evolution-foundation/evolution-go/pkg/logger"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
+ 	"go.mau.fi/whatsmeow"
+ 	"go.mau.fi/whatsmeow/types"
+@@ -86,6 +87,9 @@
+ }
+ 
+ func (n *newsletterService) CreateNewsletter(data *CreateNewsletterStruct, instance *instance_model.Instance) (*types.NewsletterMetadata, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := n.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -162,6 +166,9 @@
+ }
+ 
+ func (n *newsletterService) SubscribeNewsletter(data *GetNewsletterStruct, instance *instance_model.Instance) error {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return err
++	}
+ 	client, err := n.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return err
+--- a/pkg/routes/routes.go
++++ b/pkg/routes/routes.go
+@@ -18,6 +18,7 @@
+ 	auth_middleware "github.com/evolution-foundation/evolution-go/pkg/middleware"
+ 	newsletter_handler "github.com/evolution-foundation/evolution-go/pkg/newsletter/handler"
+ 	poll_handler "github.com/evolution-foundation/evolution-go/pkg/poll/handler"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	send_handler "github.com/evolution-foundation/evolution-go/pkg/sendMessage/handler"
+ 	server_handler "github.com/evolution-foundation/evolution-go/pkg/server/handler"
+ 	user_handler "github.com/evolution-foundation/evolution-go/pkg/user/handler"
+@@ -94,7 +95,7 @@
+ 
+ 	routes = eng.Group("/instance")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/connect", r.instanceHandler.Connect)
+ 			routes.GET("/status", r.instanceHandler.Status)
+@@ -110,7 +111,7 @@
+ 
+ 	routes = eng.Group("/send")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/text", r.jidValidationMiddleware.ValidateNumberFieldWithFormatJid(), r.sendHandler.SendText)
+ 			routes.POST("/link", r.jidValidationMiddleware.ValidateNumberFieldWithFormatJid(), r.sendHandler.SendLink)
+@@ -128,7 +129,7 @@
+ 	}
+ 	routes = eng.Group("/user")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/info", r.jidValidationMiddleware.ValidateNumberField(), r.userHandler.GetUser)
+ 			routes.POST("/check", r.jidValidationMiddleware.ValidateNumberFieldWithFormatJid(), r.userHandler.CheckUser)
+@@ -146,7 +147,7 @@
+ 	}
+ 	routes = eng.Group("/message")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/react", r.jidValidationMiddleware.ValidateJIDFields("number"), r.messageHandler.React)
+ 			routes.POST("/presence", r.jidValidationMiddleware.ValidateNumberField(), r.messageHandler.ChatPresence)
+@@ -160,7 +161,7 @@
+ 	}
+ 	routes = eng.Group("/chat")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/pin", r.jidValidationMiddleware.ValidateNumberField(), r.chatHandler.ChatPin)             // TODO: not working
+ 			routes.POST("/unpin", r.jidValidationMiddleware.ValidateNumberField(), r.chatHandler.ChatUnpin)         // TODO: not working
+@@ -173,7 +174,7 @@
+ 	}
+ 	routes = eng.Group("/group")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.GET("/list", r.groupHandler.ListGroups)
+ 			routes.POST("/info", r.jidValidationMiddleware.ValidateNumberField(), r.groupHandler.GetGroupInfo)
+@@ -191,14 +192,14 @@
+ 	}
+ 	routes = eng.Group("/call")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/reject", r.jidValidationMiddleware.ValidateNumberField(), r.callHandler.RejectCall)
+ 		}
+ 	}
+ 	routes = eng.Group("/community")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/create", r.communityHandler.CreateCommunity)
+ 			routes.POST("/add", r.jidValidationMiddleware.ValidateJIDFields("number", "communityId"), r.communityHandler.CommunityAdd)
+@@ -207,7 +208,7 @@
+ 	}
+ 	routes = eng.Group("/label")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/chat", r.jidValidationMiddleware.ValidateNumberField(), r.labelHandler.ChatLabel)
+ 			routes.POST("/message", r.labelHandler.MessageLabel)
+@@ -217,7 +218,7 @@
+ 	}
+ 	routes = eng.Group("/unlabel")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/chat", r.jidValidationMiddleware.ValidateNumberField(), r.labelHandler.ChatUnlabel)
+ 			routes.POST("/message", r.labelHandler.MessageUnlabel)
+@@ -225,7 +226,7 @@
+ 	}
+ 	routes = eng.Group("/newsletter")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.POST("/create", r.newsletterHandler.CreateNewsletter)
+ 			routes.GET("/list", r.newsletterHandler.ListNewsletter)
+@@ -239,7 +240,7 @@
+ 	// NOVO: Rotas de Enquetes (Polls)
+ 	routes = eng.Group("/polls")
+ 	{
+-		routes.Use(r.authMiddleware.Auth)
++		routes.Use(r.authMiddleware.Auth, queuepolicy.HTTP())
+ 		{
+ 			routes.GET("/:pollMessageId/results", r.pollHandler.GetPollResults)
+ 		}
+--- a/pkg/sendMessage/service/send_service.go
++++ b/pkg/sendMessage/service/send_service.go
+@@ -24,6 +24,7 @@
+ 	config "github.com/evolution-foundation/evolution-go/pkg/config"
+ 	instance_model "github.com/evolution-foundation/evolution-go/pkg/instance/model"
+ 	logger_wrapper "github.com/evolution-foundation/evolution-go/pkg/logger"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	"github.com/evolution-foundation/evolution-go/pkg/utils"
+ 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
+ 	"github.com/gabriel-vasile/mimetype"
+@@ -602,10 +603,16 @@
+ }
+ 
+ func (s *sendService) SendText(data *TextStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	return s.sendTextWithRetry(data, instance, 3) // 3 tentativas máximas
+ }
+ 
+ func (s *sendService) sendTextWithRetry(data *TextStruct, instance *instance_model.Instance, maxRetries int) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	for attempt := 1; attempt <= maxRetries; attempt++ {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendText attempt %d/%d", instance.Id, attempt, maxRetries)
+ 
+@@ -707,10 +714,16 @@
+ }
+ 
+ func (s *sendService) SendLink(data *LinkStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	return s.sendLinkWithRetry(data, instance, 3)
+ }
+ 
+ func (s *sendService) sendLinkWithRetry(data *LinkStruct, instance *instance_model.Instance, maxRetries int) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	for attempt := 1; attempt <= maxRetries; attempt++ {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendLink attempt %d/%d", instance.Id, attempt, maxRetries)
+ 
+@@ -944,10 +957,16 @@
+ }
+ 
+ func (s *sendService) SendMediaFile(data *MediaStruct, fileData []byte, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	return s.sendMediaFileWithRetry(data, fileData, instance, 3)
+ }
+ 
+ func (s *sendService) sendMediaFileWithRetry(data *MediaStruct, fileData []byte, instance *instance_model.Instance, maxRetries int) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	for attempt := 1; attempt <= maxRetries; attempt++ {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendMediaFile attempt %d/%d", instance.Id, attempt, maxRetries)
+ 
+@@ -1220,10 +1239,16 @@
+ }
+ 
+ func (s *sendService) SendMediaUrl(data *MediaStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	return s.sendMediaUrlWithRetry(data, instance, 3)
+ }
+ 
+ func (s *sendService) sendMediaUrlWithRetry(data *MediaStruct, instance *instance_model.Instance, maxRetries int) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	for attempt := 1; attempt <= maxRetries; attempt++ {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendMediaUrl attempt %d/%d", instance.Id, attempt, maxRetries)
+ 		startTime := time.Now()
+@@ -1529,10 +1554,16 @@
+ }
+ 
+ func (s *sendService) SendPoll(data *PollStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	return s.sendPollWithRetry(data, instance, 3)
+ }
+ 
+ func (s *sendService) sendPollWithRetry(data *PollStruct, instance *instance_model.Instance, maxRetries int) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	for attempt := 1; attempt <= maxRetries; attempt++ {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendPoll attempt %d/%d", instance.Id, attempt, maxRetries)
+ 
+@@ -1602,6 +1633,9 @@
+ }
+ 
+ func (s *sendService) SendSticker(data *StickerStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -1653,6 +1687,9 @@
+ }
+ 
+ func (s *sendService) SendLocation(data *LocationStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	_, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -1682,6 +1719,9 @@
+ }
+ 
+ func (s *sendService) SendContact(data *ContactStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	_, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -1734,6 +1774,9 @@
+ }
+ 
+ func (s *sendService) SendButton(data *ButtonStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -2245,6 +2288,9 @@
+ }
+ 
+ func (s *sendService) SendList(data *ListStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	// Legacy ListMessage format - works on iOS, Android and Web
+ 	// Matching PAPI Node.js default (non-modern) path exactly
+ 
+@@ -2348,6 +2394,9 @@
+ }
+ 
+ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.Message, messageType string, data *SendDataStruct) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendMessage called for number: %s, type: %s", instance.Id, data.Number, messageType)
+ 
+ 	recipient, err := s.validateAndCheckUserExists(data.Number, data.FormatJid, &data.Quoted.MessageID, &data.Quoted.MessageID, instance)
+@@ -2770,6 +2819,9 @@
+ 		sendExtra.AdditionalNodes = data.AdditionalNodes
+ 	}
+ 
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	response, err := s.clientPointer[instance.Id].SendMessage(context.Background(), recipient, msg, sendExtra)
+ 	if err != nil {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error sending message: %v", instance.Id, err)
+@@ -2897,6 +2949,9 @@
+ }
+ 
+ func (s *sendService) SendCarousel(data *CarouselStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -3121,6 +3176,9 @@
+ }
+ 
+ func (s *sendService) SendStatusText(data *StatusTextStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -3143,6 +3201,9 @@
+ 
+ 	recipient := types.NewJID("status", "broadcast")
+ 
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	response, err := client.SendMessage(context.Background(), recipient, msg, whatsmeow.SendRequestExtra{ID: messageID})
+ 	if err != nil {
+ 		return nil, err
+@@ -3177,6 +3238,9 @@
+ }
+ 
+ func (s *sendService) SendStatusMediaUrl(data *StatusMediaStruct, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -3215,6 +3279,9 @@
+ }
+ 
+ func (s *sendService) SendStatusMediaFile(data *StatusMediaStruct, fileData []byte, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	client, err := s.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return nil, err
+@@ -3228,6 +3295,9 @@
+ }
+ 
+ func (s *sendService) sendStatusMedia(client *whatsmeow.Client, data *StatusMediaStruct, fileData []byte, instance *instance_model.Instance) (*MessageSendStruct, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	mime, _ := mimetype.DetectReader(bytes.NewReader(fileData))
+ 	mimeType := mime.String()
+ 
+@@ -3299,6 +3369,9 @@
+ 
+ 	recipient := types.NewJID("status", "broadcast")
+ 
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return nil, err
++	}
+ 	response, err := client.SendMessage(context.Background(), recipient, media, whatsmeow.SendRequestExtra{ID: messageID})
+ 	if err != nil {
+ 		return nil, err
+--- a/pkg/user/service/user_service.go
++++ b/pkg/user/service/user_service.go
+@@ -10,6 +10,7 @@
+ 
+ 	instance_model "github.com/evolution-foundation/evolution-go/pkg/instance/model"
+ 	logger_wrapper "github.com/evolution-foundation/evolution-go/pkg/logger"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	"github.com/evolution-foundation/evolution-go/pkg/utils"
+ 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
+ 	"go.mau.fi/whatsmeow"
+@@ -486,6 +487,9 @@
+ }
+ 
+ func (u *userService) SetProfilePicture(data *SetProfilePictureStruct, instance *instance_model.Instance) (bool, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return false, err
++	}
+ 	client, err := u.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return false, err
+@@ -513,6 +517,9 @@
+ }
+ 
+ func (u *userService) SetProfileName(data *SetProfileNameStruct, instance *instance_model.Instance) (bool, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return false, err
++	}
+ 	client, err := u.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return false, err
+@@ -527,6 +534,9 @@
+ }
+ 
+ func (u *userService) SetProfileStatus(data *SetProfileStatusStruct, instance *instance_model.Instance) (bool, error) {
++	if err := queuepolicy.Legacy(instance.Id); err != nil {
++		return false, err
++	}
+ 	client, err := u.ensureClientConnected(instance.Id)
+ 	if err != nil {
+ 		return false, err
+--- a/pkg/whatsmeow/service/whatsmeow.go
++++ b/pkg/whatsmeow/service/whatsmeow.go
+@@ -46,6 +46,7 @@
+ 	message_repository "github.com/evolution-foundation/evolution-go/pkg/message/repository"
+ 	"github.com/evolution-foundation/evolution-go/pkg/passkey/ceremony"
+ 	poll_service "github.com/evolution-foundation/evolution-go/pkg/poll/service"
++	"github.com/evolution-foundation/evolution-go/pkg/queuepolicy"
+ 	storage_interfaces "github.com/evolution-foundation/evolution-go/pkg/storage/interfaces"
+ 	"github.com/evolution-foundation/evolution-go/pkg/utils"
+ )
+@@ -964,6 +965,9 @@
+ }
+ 
+ func processPresenceUpdates(mycli *MyClient) {
++	if queuepolicy.Legacy(mycli.userID) != nil {
++		return
++	}
+ 	now := time.Now()
+ 	location, _ := time.LoadLocation("America/Sao_Paulo")
+ 	nowSp := now.In(location)
+@@ -1187,7 +1191,7 @@
+ 		mycli.handleQRCodes(evt.Codes)
+ 		return
+ 	case *events.AppStateSyncComplete:
+-		if len(mycli.WAClient.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
++		if len(mycli.WAClient.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock && queuepolicy.Legacy(mycli.userID) == nil {
+ 			err := mycli.WAClient.SendPresence(context.Background(), types.PresenceUnavailable)
+ 			if err != nil {
+ 				mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Failed to send unavailable presence %v", mycli.userID, err)
+@@ -1246,29 +1250,31 @@
+ 			// delivers messages to that active session and suppresses push notifications on
+ 			// the user's phone. When alwaysOnline is false we now send Unavailable instead.
+ 			var err error
+-			if mycli.Instance.AlwaysOnline {
+-				mycli.presenceOnce.Do(func() {
+-					if !mycli.startWorker() {
+-						return
++			if queuepolicy.Legacy(mycli.userID) == nil {
++				if mycli.Instance.AlwaysOnline {
++					mycli.presenceOnce.Do(func() {
++						if !mycli.startWorker() {
++							return
++						}
++						go func() {
++							defer mycli.workerWG.Done()
++							schedulePresenceUpdates(mycli)
++						}()
++					})
++
++					err = mycli.WAClient.SendPresence(context.Background(), types.PresenceAvailable)
++					if err != nil {
++						mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Failed to send available presence %v", mycli.userID, err)
++					} else {
++						mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Marked self as available", mycli.userID)
+ 					}
+-					go func() {
+-						defer mycli.workerWG.Done()
+-						schedulePresenceUpdates(mycli)
+-					}()
+-				})
+-
+-				err = mycli.WAClient.SendPresence(context.Background(), types.PresenceAvailable)
+-				if err != nil {
+-					mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Failed to send available presence %v", mycli.userID, err)
+ 				} else {
+-					mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Marked self as available", mycli.userID)
+-				}
+-			} else {
+-				err = mycli.WAClient.SendPresence(context.Background(), types.PresenceUnavailable)
+-				if err != nil {
+-					mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Failed to send unavailable presence %v", mycli.userID, err)
+-				} else {
+-					mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Marked self as unavailable (alwaysOnline=false)", mycli.userID)
++					err = mycli.WAClient.SendPresence(context.Background(), types.PresenceUnavailable)
++					if err != nil {
++						mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Failed to send unavailable presence %v", mycli.userID, err)
++					} else {
++						mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Marked self as unavailable (alwaysOnline=false)", mycli.userID)
++					}
+ 				}
+ 			}
+ 
+@@ -2243,14 +2249,14 @@
+ 		postMap["event"] = "CallOffer"
+ 
+ 		// Verifica se deve rejeitar chamadas automaticamente
+-		if mycli.Instance.RejectCall {
++		if mycli.Instance.RejectCall && queuepolicy.Legacy(mycli.userID) == nil {
+ 			mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] Auto-rejecting call from %s", mycli.userID, evt.CallCreator.String())
+ 
+ 			// Rejeita a chamada
+ 			mycli.WAClient.RejectCall(context.Background(), evt.CallCreator, evt.CallID)
+ 
+ 			// Envia mensagem de rejeição se configurada
+-			if mycli.Instance.MsgRejectCall != "" {
++			if mycli.Instance.MsgRejectCall != "" && queuepolicy.Legacy(mycli.userID) == nil {
+ 				msg := &waE2E.Message{
+ 					ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+ 						Text: &mycli.Instance.MsgRejectCall,

@@ -1,0 +1,19 @@
+--- a/cmd/evolution-go/main.go
++++ b/cmd/evolution-go/main.go
+@@ -54,6 +54,7 @@
+ 	newsletter_service "github.com/evolution-foundation/evolution-go/pkg/newsletter/service"
+ 	passkey_handler "github.com/evolution-foundation/evolution-go/pkg/passkey/handler"
+ 	poll_handler "github.com/evolution-foundation/evolution-go/pkg/poll/handler"
++	"github.com/evolution-foundation/evolution-go/pkg/queuev1"
+ 	routes "github.com/evolution-foundation/evolution-go/pkg/routes"
+ 	send_handler "github.com/evolution-foundation/evolution-go/pkg/sendMessage/handler"
+ 	send_service "github.com/evolution-foundation/evolution-go/pkg/sendMessage/service"
+@@ -241,6 +242,8 @@
+ 		server_handler.NewServerHandler(),
+ 	).AssignRoutes(r)
+ 
++	queuev1.RegisterOptional(r, db, whatsmeowService, auth_middleware.NewMiddleware(config, instanceService).Auth, os.Getenv("EVOLUTION_QUEUE_V1") == "true")
++
+ 	if config.ConnectOnStartup {
+ 		go whatsmeowService.ConnectOnStartup(config.ClientName)
+ 	}

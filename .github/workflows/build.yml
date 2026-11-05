@@ -66,7 +66,7 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           docker buildx imagetools create \
-            --tag "${IMAGE}:0.7.2-jupiter2-webhook-${COMMIT_SHA}" \
+            --tag "${IMAGE}:0.7.2-jupiter3-queue-v1-${COMMIT_SHA}" \
             "${IMAGE}:sha-${COMMIT_SHA}-amd64" \
             "${IMAGE}:sha-${COMMIT_SHA}-arm64"
 
@@ -85,7 +85,7 @@ jobs:
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          docker buildx imagetools inspect "${IMAGE}:0.7.2-jupiter2-webhook-${COMMIT_SHA}" --raw |
+          docker buildx imagetools inspect "${IMAGE}:0.7.2-jupiter3-queue-v1-${COMMIT_SHA}" --raw |
             jq -e '[.manifests[] | select(.platform.os == "linux") | .platform.architecture] | unique == ["amd64", "arm64"]'
 
       - name: Verify republished LembrAI production tag
