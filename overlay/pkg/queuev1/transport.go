@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	send_service "github.com/evolution-foundation/evolution-go/pkg/sendMessage/service"
 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -31,6 +32,7 @@ var (
 type WAClient interface {
 	IsConnected() bool
 	IsLoggedIn() bool
+	IsOnWhatsApp(context.Context, []string) ([]types.IsOnWhatsAppResponse, error)
 	SendMessage(context.Context, types.JID, *waE2E.Message, ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error)
 	Upload(context.Context, []byte, whatsmeow.MediaType) (whatsmeow.UploadResponse, error)
 	SendPresence(context.Context, types.Presence) error
@@ -70,6 +72,30 @@ func queueTarget(to string) (types.JID, error) {
 	default:
 		return types.EmptyJID, errors.New("queue target server is unsupported")
 	}
+}
+
+// Resolve with the same number normalization and WhatsApp remoteJID lookup as
+// legacy sending, but without entering its connection/send retry wrappers.
+func resolveQueueTarget(ctx context.Context, client WAClient, to string) (types.JID, error) {
+	original, err := queueTarget(to)
+	if err != nil {
+		return types.EmptyJID, err
+	}
+	phone := to
+	if original.Server == types.DefaultUserServer {
+		// Legacy Number is a phone number. Passing a PN JID to IsOnWhatsApp
+		// would query "number@s.whatsapp.net@c.us" instead of that number.
+		phone = original.User
+	}
+	target, err := send_service.ResolveMessageRecipient(ctx, client, phone, nil, true)
+	if err != nil {
+		return types.EmptyJID, err
+	}
+	target, err = queueTarget(target.String())
+	if err != nil || (original.Server != types.GroupServer && target.Server == types.GroupServer) {
+		return types.EmptyJID, errors.New("queue resolved recipient is invalid")
+	}
+	return target, nil
 }
 
 func queueClientReady(ctx context.Context, client WAClient) error {
@@ -128,8 +154,16 @@ func (t *queueTransport) Prepare(ctx context.Context, instanceID, messageID stri
 	if err = queueClientReady(ownedCtx, client); err != nil {
 		return nil, err
 	}
+	lookupCtx, stopLookup := context.WithTimeout(ownedCtx, queueSendTimeout)
+	p.target, err = resolveQueueTarget(lookupCtx, client, msg.To)
+	stopLookup()
+	if err != nil {
+		return nil, err
+	}
 	if msg.Kind == "text" {
-		p.message = &waE2E.Message{Conversation: proto.String(msg.Text)}
+		body := send_service.SharedTextMessage(msg.Text)
+		body.ContextInfo = &waE2E.ContextInfo{}
+		p.message = &waE2E.Message{ExtendedTextMessage: body}
 	} else {
 		uploadCtx, stop := context.WithTimeout(ownedCtx, queueSendTimeout)
 		defer stop()
@@ -144,12 +178,9 @@ func (t *queueTransport) Prepare(ctx context.Context, instanceID, messageID stri
 		if upload.URL == "" || upload.DirectPath == "" || len(upload.MediaKey) != 32 || len(upload.FileEncSHA256) != sha256.Size || !bytes.Equal(upload.FileSHA256, hash[:]) || upload.FileLength != uint64(len(image)) {
 			return nil, errors.New("queue image upload response is invalid")
 		}
-		p.message = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
-			URL: proto.String(upload.URL), DirectPath: proto.String(upload.DirectPath),
-			MediaKey: bytes.Clone(upload.MediaKey), FileEncSHA256: bytes.Clone(upload.FileEncSHA256),
-			FileSHA256: bytes.Clone(upload.FileSHA256), FileLength: proto.Uint64(upload.FileLength),
-			Mimetype: proto.String(msg.MIME), Caption: proto.String(msg.Caption),
-		}}
+		body := send_service.SharedImageMessage(image, msg.MIME, msg.Caption, upload, false)
+		body.ContextInfo = &waE2E.ContextInfo{}
+		p.message = proto.Clone(&waE2E.Message{ImageMessage: body}).(*waE2E.Message)
 	}
 	if err = ownedCtx.Err(); err != nil {
 		return nil, err
@@ -286,6 +317,10 @@ func (t *queueTransport) Presence(ctx context.Context, instanceID, to string, du
 	presenceCtx, cancel := context.WithTimeout(leasedCtx, remaining+queueSendTimeout)
 	defer cancel()
 	if err = queueClientReady(presenceCtx, client); err != nil {
+		return err
+	}
+	target, err = resolveQueueTarget(presenceCtx, client, to)
+	if err != nil {
 		return err
 	}
 	if err = client.SendPresence(presenceCtx, types.PresenceAvailable); err != nil {

@@ -29,6 +29,12 @@ RUN printf '%s  %s\n' dd6044e185c36513c72bedda5cf6cc8448de63562dc0a0ca3f4fbc5d9c
     && git apply --check /tmp/client-version.patch \
     && git apply /tmp/client-version.patch
 
+# Share legacy recipient/text/image preparation with queue-v1, not its send retries.
+COPY patches/message-preparation.patch /tmp/message-preparation.patch
+RUN printf '%s  %s\n' 9c2e3d980238de92390492cc2d3485b404143b11448bc1dd32f6a699cd06fce7 /tmp/message-preparation.patch | sha256sum -c - \
+    && git apply --check /tmp/message-preparation.patch \
+    && git apply /tmp/message-preparation.patch
+
 # Immutable source baseline for the legacy AST/byte-identity regression proof.
 RUN cp -a /build /tmp/queue-v1-legacy-baseline
 COPY patches/credential-logs.patch /tmp/credential-logs.patch

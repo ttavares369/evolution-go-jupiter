@@ -1,0 +1,189 @@
+--- a/pkg/sendMessage/service/send_service.go
++++ b/pkg/sendMessage/service/send_service.go
+@@ -509,86 +509,25 @@
+ 	return recipient, nil
+ }
+ 
+-// validateAndCheckUserExists validates message fields and checks if the user exists on WhatsApp
+-// Now uses the new approach: CheckUser with formatJid=false by default, and uses remoteJID for messaging
++// validateAndCheckUserExists retains legacy connection/configuration and quoted-field validation.
+ func (s *sendService) validateAndCheckUserExists(phone string, formatJid *bool, messageID *string, participant *string, instance *instance_model.Instance) (types.JID, error) {
+-	// Skip WhatsApp check if disabled in config
++	var client *whatsmeow.Client
+ 	if !s.config.CheckUserExists {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogDebug("[%s] User existence check disabled by configuration", instance.Id)
+-		// Use original validation logic when check is disabled
+-		return validateMessageFields(phone, formatJid, messageID, participant)
+-	}
+-
+-	// Skip WhatsApp check for group messages, broadcast, newsletter, and LID
+-	if strings.Contains(phone, "@g.us") || strings.Contains(phone, "@broadcast") || strings.Contains(phone, "@newsletter") || strings.Contains(phone, "@lid") {
+-		return validateMessageFields(phone, formatJid, messageID, participant)
+-	}
+-
+-	// Get the client to check if user exists on WhatsApp
+-	client, err := s.ensureClientConnected(instance.Id)
+-	if err != nil {
+-		return types.NewJID("", types.DefaultUserServer), fmt.Errorf("failed to connect client: %v", err)
+-	}
+-
+-	// Use CheckUser approach: formatJid=false by default
+-	formatJidForCheck := false
+-
+-	// First attempt with formatJid=false
+-	remoteJID, found, err := s.checkSingleUserExists(client, phone, formatJidForCheck, instance.Id)
+-	if err != nil {
+-		s.loggerWrapper.GetLogger(instance.Id).LogWarn("[%s] Failed to check user existence: %v", instance.Id, err)
+-		// Continue with sending even if check fails (network issues, etc.)
+-		return validateMessageFields(phone, formatJid, messageID, participant)
+-	}
+-
+-	// If not found with formatJid=false, try with formatJid=true as fallback
+-	if !found {
+-		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] User not found with formatJid=false, trying with formatJid=true", instance.Id)
+-		remoteJIDRetry, foundRetry, errRetry := s.checkSingleUserExists(client, phone, true, instance.Id)
+-		if errRetry == nil && foundRetry {
+-			remoteJID = remoteJIDRetry
+-			found = foundRetry
+-		}
+-	}
+-
+-	if !found {
+-		return types.NewJID("", types.DefaultUserServer), fmt.Errorf("number %s is not registered on WhatsApp", phone)
+-	}
+-
+-	s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Number %s verified as valid WhatsApp user, using remoteJID: %s", instance.Id, phone, remoteJID)
+-
+-	// Validate the remoteJID with formatJid=false for message sending
++	} else if !messageRecipientSkipsLookup(phone) {
++		var err error
++		client, err = s.ensureClientConnected(instance.Id)
++		if err != nil {
++			return types.NewJID("", types.DefaultUserServer), fmt.Errorf("failed to connect client: %v", err)
++		}
++	}
++
++	recipient, err := ResolveMessageRecipient(context.Background(), client, phone, formatJid, s.config.CheckUserExists)
++	if err != nil {
++		return recipient, err
++	}
+ 	formatJidFalse := false
+-	return validateMessageFields(remoteJID, &formatJidFalse, messageID, participant)
+-}
+-
+-// checkSingleUserExists checks if a single user exists on WhatsApp with the specified formatJid setting
+-// Returns: remoteJID, found, error
+-func (s *sendService) checkSingleUserExists(client *whatsmeow.Client, phone string, formatJid bool, instanceId string) (string, bool, error) {
+-	phoneNumbers, err := utils.PrepareNumbersForWhatsAppCheck([]string{phone}, &formatJid)
+-	if err != nil {
+-		return "", false, fmt.Errorf("failed to prepare number for WhatsApp check: %v", err)
+-	}
+-
+-	// Check if the number exists on WhatsApp
+-	resp, err := client.IsOnWhatsApp(context.Background(), phoneNumbers)
+-	if err != nil {
+-		return "", false, fmt.Errorf("failed to check if number %s exists on WhatsApp: %v", phoneNumbers[0], err)
+-	}
+-
+-	// Verify if the number was found
+-	if len(resp) == 0 {
+-		return "", false, fmt.Errorf("number %s not found in WhatsApp response", phoneNumbers[0])
+-	}
+-
+-	// Check if the first result indicates the number is on WhatsApp
+-	if !resp[0].IsIn {
+-		return "", false, nil // Not an error, just not found
+-	}
+-
+-	// Return the remoteJID from WhatsApp's response
+-	remoteJID := fmt.Sprintf("%v", resp[0].JID)
+-	return remoteJID, true, nil
++	return validateMessageFields(recipient.String(), &formatJidFalse, messageID, participant)
+ }
+ 
+ func findURL(text string) string {
+@@ -618,9 +557,7 @@
+ 		}
+ 
+ 		msg := &waE2E.Message{
+-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+-				Text: &data.Text,
+-			},
++			ExtendedTextMessage: SharedTextMessage(data.Text),
+ 		}
+ 
+ 		message, err := s.SendMessage(instance, msg, "ExtendedTextMessage", &SendDataStruct{
+@@ -1039,35 +976,7 @@
+ 
+ 		switch data.Type {
+ 		case "image":
+-			// Generate a JPEG preview thumbnail for better client UX (iOS in
+-			// particular). On failure jpegThumb is nil and the message is sent
+-			// without a preview rather than failing the request.
+-			jpegThumb := makeJPEGThumbnail(fileData, 72)
+-			if isNewsletter {
+-				// Newsletter: SEM MediaKey e FileEncSHA256
+-				media = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+-					Caption:       proto.String(data.Caption),
+-					URL:           &uploaded.URL,
+-					DirectPath:    &uploaded.DirectPath,
+-					Mimetype:      proto.String(mimeType),
+-					FileSHA256:    uploaded.FileSHA256,
+-					FileLength:    &uploaded.FileLength,
+-					JPEGThumbnail: jpegThumb,
+-				}}
+-			} else {
+-				// Normal: COM MediaKey e FileEncSHA256
+-				media = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+-					Caption:       proto.String(data.Caption),
+-					URL:           proto.String(uploaded.URL),
+-					DirectPath:    proto.String(uploaded.DirectPath),
+-					MediaKey:      uploaded.MediaKey,
+-					Mimetype:      proto.String(mimeType),
+-					FileEncSHA256: uploaded.FileEncSHA256,
+-					FileSHA256:    uploaded.FileSHA256,
+-					FileLength:    proto.Uint64(uint64(len(fileData))),
+-					JPEGThumbnail: jpegThumb,
+-				}}
+-			}
++			media = &waE2E.Message{ImageMessage: SharedImageMessage(fileData, mimeType, data.Caption, uploaded, isNewsletter)}
+ 			mediaType = "ImageMessage"
+ 		case "video":
+ 			if isNewsletter {
+@@ -1339,35 +1248,7 @@
+ 
+ 		switch data.Type {
+ 		case "image":
+-			// Generate a JPEG preview thumbnail for better client UX (iOS in
+-			// particular). On failure jpegThumb is nil and the message is sent
+-			// without a preview rather than failing the request.
+-			jpegThumb := makeJPEGThumbnail(fileData, 72)
+-			if isNewsletter {
+-				// Newsletter: sem criptografia (sem MediaKey e FileEncSHA256)
+-				media = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+-					Caption:       proto.String(data.Caption),
+-					URL:           &uploaded.URL,
+-					DirectPath:    &uploaded.DirectPath,
+-					Mimetype:      proto.String(mimeType),
+-					FileSHA256:    uploaded.FileSHA256,
+-					FileLength:    &uploaded.FileLength,
+-					JPEGThumbnail: jpegThumb,
+-				}}
+-			} else {
+-				// Normal: com criptografia
+-				media = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+-					Caption:       proto.String(data.Caption),
+-					URL:           proto.String(uploaded.URL),
+-					DirectPath:    proto.String(uploaded.DirectPath),
+-					MediaKey:      uploaded.MediaKey,
+-					Mimetype:      proto.String(mimeType),
+-					FileEncSHA256: uploaded.FileEncSHA256,
+-					FileSHA256:    uploaded.FileSHA256,
+-					FileLength:    proto.Uint64(uint64(len(fileData))),
+-					JPEGThumbnail: jpegThumb,
+-				}}
+-			}
++			media = &waE2E.Message{ImageMessage: SharedImageMessage(fileData, mimeType, data.Caption, uploaded, isNewsletter)}
+ 			mediaType = "ImageMessage"
+ 		case "video":
+ 			if isNewsletter {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -33,6 +34,8 @@ type queueFakeClient struct {
 	loggedIn     bool
 	sends        atomic.Int32
 	uploads      atomic.Int32
+	checks       atomic.Int32
+	check        func(context.Context, []string) ([]types.IsOnWhatsAppResponse, error)
 	send         func(context.Context, types.JID, *waE2E.Message, ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error)
 	upload       func(context.Context, []byte, whatsmeow.MediaType) (whatsmeow.UploadResponse, error)
 	presence     func(context.Context, types.Presence) error
@@ -42,6 +45,13 @@ type queueFakeClient struct {
 func newQueueFakeClient() *queueFakeClient   { return &queueFakeClient{connected: true, loggedIn: true} }
 func (f *queueFakeClient) IsConnected() bool { return f.connected }
 func (f *queueFakeClient) IsLoggedIn() bool  { return f.loggedIn }
+func (f *queueFakeClient) IsOnWhatsApp(ctx context.Context, numbers []string) ([]types.IsOnWhatsAppResponse, error) {
+	f.checks.Add(1)
+	if f.check != nil {
+		return f.check(ctx, numbers)
+	}
+	return []types.IsOnWhatsAppResponse{{IsIn: true, JID: types.NewJID(strings.TrimPrefix(strings.Split(numbers[0], "@")[0], "+"), types.DefaultUserServer)}}, nil
+}
 func (f *queueFakeClient) SendMessage(ctx context.Context, to types.JID, msg *waE2E.Message, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
 	f.sends.Add(1)
 	if f.send != nil {
@@ -103,7 +113,7 @@ func TestQueueTransportTextSingleCallPinnedIDAndNoTyping(t *testing.T) {
 		return nil
 	}
 	f.send = func(ctx context.Context, to types.JID, msg *waE2E.Message, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
-		if to.String() != testQueueTarget || !proto.Equal(msg, &waE2E.Message{Conversation: proto.String("owned text")}) {
+		if to.String() != testQueueTarget || !proto.Equal(msg, &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("owned text"), ContextInfo: &waE2E.ContextInfo{}}}) {
 			t.Errorf("unexpected payload/target")
 		}
 		if len(extra) != 1 || extra[0].ID != testQueueID || extra[0].Timeout <= 0 || extra[0].Timeout > queueSendTimeout {
@@ -112,7 +122,7 @@ func TestQueueTransportTextSingleCallPinnedIDAndNoTyping(t *testing.T) {
 		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > queueSendTimeout {
 			t.Error("send not bounded")
 		}
-		msg.Conversation = proto.String("client mutation")
+		msg.ExtendedTextMessage.Text = proto.String("client mutation")
 		return whatsmeow.SendResponse{ID: extra[0].ID, Timestamp: testQueueTime}, nil
 	}
 	tr, releases := queueFakeTransport(t, f)
@@ -121,7 +131,7 @@ func TestQueueTransportTextSingleCallPinnedIDAndNoTyping(t *testing.T) {
 	if err != nil || receipt.MessageID != testQueueID || !receipt.AcceptedAt.Equal(testQueueTime) {
 		t.Fatalf("receipt=%+v err=%v", receipt, err)
 	}
-	if p.(*queuePrepared).message.GetConversation() != "owned text" {
+	if p.(*queuePrepared).message.GetExtendedTextMessage().GetText() != "owned text" {
 		t.Fatal("client mutated retained protobuf")
 	}
 	if _, err = p.Send(context.Background()); !errors.Is(err, ErrPreparedUsed) {
@@ -307,7 +317,7 @@ func TestQueueTransportImageUploadAndOwnedProtobuf(t *testing.T) {
 	msg := queueTestImage()
 	original := bytes.Clone(msg.ImageBytes)
 	upload := queueTestUpload(original)
-	want := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{URL: proto.String(upload.URL), DirectPath: proto.String(upload.DirectPath), MediaKey: bytes.Clone(upload.MediaKey), FileEncSHA256: bytes.Clone(upload.FileEncSHA256), FileSHA256: bytes.Clone(upload.FileSHA256), FileLength: proto.Uint64(upload.FileLength), Caption: proto.String(msg.Caption), Mimetype: proto.String(msg.MIME)}}
+	want := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{URL: proto.String(upload.URL), DirectPath: proto.String(upload.DirectPath), MediaKey: bytes.Clone(upload.MediaKey), FileEncSHA256: bytes.Clone(upload.FileEncSHA256), FileSHA256: bytes.Clone(upload.FileSHA256), FileLength: proto.Uint64(upload.FileLength), Caption: proto.String(msg.Caption), Mimetype: proto.String(msg.MIME), ContextInfo: &waE2E.ContextInfo{}}}
 	f.upload = func(ctx context.Context, data []byte, media whatsmeow.MediaType) (whatsmeow.UploadResponse, error) {
 		if !bytes.Equal(data, original) || media != whatsmeow.MediaImage {
 			t.Error("wrong upload")
