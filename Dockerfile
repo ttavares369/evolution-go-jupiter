@@ -23,6 +23,12 @@ RUN printf '%s  %s\n' c163460384386317330b4420d41f8ff67a9874e01fca247624ed9f8a5b
     && git apply --check /tmp/lembrai-webhook.patch \
     && git apply /tmp/lembrai-webhook.patch
 
+# PR #229 handshake-version fix, retaining the PR #154 QR/session lifecycle.
+COPY patches/client-version.patch /tmp/client-version.patch
+RUN printf '%s  %s\n' dd6044e185c36513c72bedda5cf6cc8448de63562dc0a0ca3f4fbc5d9c8519a7 /tmp/client-version.patch | sha256sum -c - \
+    && git apply --check /tmp/client-version.patch \
+    && git apply /tmp/client-version.patch
+
 # Immutable source baseline for the legacy AST/byte-identity regression proof.
 RUN cp -a /build /tmp/queue-v1-legacy-baseline
 COPY patches/credential-logs.patch /tmp/credential-logs.patch

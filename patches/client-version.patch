@@ -1,0 +1,58 @@
+--- a/pkg/whatsmeow/service/whatsmeow.go
++++ b/pkg/whatsmeow/service/whatsmeow.go
+@@ -673,7 +673,11 @@
+ 		}
+ 	}
+ 
+-	var version clientVersion
++	version, versionErr := processClientVersion.initialize(w.config, fetchWhatsAppWebVersion)
++	if versionErr != nil {
++		w.loggerWrapper.GetLogger(cd.Instance.Id).LogWarn("[%s] WhatsApp Web version unavailable; using process fallback: %v", cd.Instance.Id, versionErr)
++	}
++	w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] WhatsApp handshake version: %d.%d.%d", cd.Instance.Id, version[0], version[1], version[2])
+ 
+ 	platformID, ok := waCompanionReg.DeviceProps_PlatformType_value[strings.ToUpper("chrome")]
+ 	if ok {
+@@ -686,33 +690,6 @@
+ 	store.DeviceProps.Os = &cd.Instance.OsName
+ 	store.DeviceProps.RequireFullSync = proto.Bool(true)
+ 
+-	if w.config.WhatsappVersionMajor != 0 && w.config.WhatsappVersionMinor != 0 && w.config.WhatsappVersionPatch != 0 {
+-		w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Setting whatsapp version to %d.%d.%d", cd.Instance.Id, w.config.WhatsappVersionMajor, w.config.WhatsappVersionMinor, w.config.WhatsappVersionPatch)
+-		version.Major = w.config.WhatsappVersionMajor
+-		if err == nil {
+-			store.DeviceProps.Version.Primary = proto.Uint32(uint32(version.Major))
+-		}
+-		version.Minor = w.config.WhatsappVersionMinor
+-		if err == nil {
+-			store.DeviceProps.Version.Secondary = proto.Uint32(uint32(version.Minor))
+-		}
+-		version.Patch = w.config.WhatsappVersionPatch
+-		if err == nil {
+-			store.DeviceProps.Version.Tertiary = proto.Uint32(uint32(version.Patch))
+-		}
+-	} else {
+-		// Try to fetch version from WhatsApp Web
+-		webVersion, err := fetchWhatsAppWebVersion()
+-		if err != nil {
+-			w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Failed to fetch WhatsApp Web version: %v", cd.Instance.Id, err)
+-		} else {
+-			w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Setting whatsapp version from web to %d.%d.%d", cd.Instance.Id, webVersion.Major, webVersion.Minor, webVersion.Patch)
+-			version = *webVersion
+-			store.DeviceProps.Version.Primary = proto.Uint32(uint32(version.Major))
+-			store.DeviceProps.Version.Secondary = proto.Uint32(uint32(version.Minor))
+-			store.DeviceProps.Version.Tertiary = proto.Uint32(uint32(version.Patch))
+-		}
+-	}
+ 
+ 	// 🔒 FIX: Sempre criar logger, mesmo que WaDebug esteja vazio
+ 	// Usar "INFO" como nível mínimo para garantir que logs importantes apareçam
+@@ -2988,7 +2965,7 @@
+ 		return cachedWebVersion, nil
+ 	}
+ 
+-	resp, err := http.Get("https://web.whatsapp.com/sw.js")
++	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get("https://web.whatsapp.com/sw.js")
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to fetch WhatsApp Web version: %v", err)
+ 	}
